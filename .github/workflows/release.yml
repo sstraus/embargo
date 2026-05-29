@@ -1,0 +1,128 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    name: Build ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            os: ubuntu-latest
+            name: linux-x64
+          - goos: linux
+            goarch: arm64
+            os: ubuntu-latest
+            name: linux-arm64
+          - goos: darwin
+            goarch: amd64
+            os: macos-latest
+            name: macos-x64
+          - goos: darwin
+            goarch: arm64
+            os: macos-latest
+            name: macos-arm64
+          - goos: windows
+            goarch: amd64
+            os: ubuntu-latest
+            name: windows-x64
+            ext: .exe
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache: true
+
+      - name: Build release binary
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          LDFLAGS="-s -w -X main.version=${VERSION} -X main.commit=${GITHUB_SHA} -X main.date=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          go build -trimpath -ldflags "${LDFLAGS}" -o "embargo-${{ matrix.name }}${{ matrix.ext }}" ./cmd/embargo
+
+      - name: Checksum
+        run: shasum -a 256 "embargo-${{ matrix.name }}${{ matrix.ext }}" > "embargo-${{ matrix.name }}${{ matrix.ext }}.sha256"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: embargo-${{ matrix.name }}
+          path: |
+            embargo-${{ matrix.name }}${{ matrix.ext }}
+            embargo-${{ matrix.name }}${{ matrix.ext }}.sha256
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare release files
+        run: |
+          mkdir -p release
+          find artifacts -type f \( -name 'embargo-*' -o -name '*.sha256' \) -exec cp {} release/ \;
+          cd release
+          cat *.sha256 > checksums.txt
+          ls -la
+
+      - name: Generate latest.json
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          cat > release/latest.json <<EOF
+          {
+            "version": "${VERSION}",
+            "pub_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "assets": {
+              "macos-arm64": "https://github.com/sstraus/embargo/releases/download/${GITHUB_REF_NAME}/embargo-macos-arm64",
+              "macos-x64": "https://github.com/sstraus/embargo/releases/download/${GITHUB_REF_NAME}/embargo-macos-x64",
+              "linux-x64": "https://github.com/sstraus/embargo/releases/download/${GITHUB_REF_NAME}/embargo-linux-x64",
+              "linux-arm64": "https://github.com/sstraus/embargo/releases/download/${GITHUB_REF_NAME}/embargo-linux-arm64",
+              "windows-x64": "https://github.com/sstraus/embargo/releases/download/${GITHUB_REF_NAME}/embargo-windows-x64.exe"
+            }
+          }
+          EOF
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            release/embargo-*
+            release/checksums.txt
+            release/latest.json
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(github.ref, '-rc') || contains(github.ref, '-beta') || contains(github.ref, '-alpha') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update Homebrew tap
+        if: ${{ !contains(github.ref, '-rc') && !contains(github.ref, '-beta') && !contains(github.ref, '-alpha') }}
+        run: |
+          gh api repos/sstraus/homebrew-tap/dispatches \
+            -f event_type=release-published \
+            -f 'client_payload[repo]=embargo' \
+            -f 'client_payload[version]=${{ github.ref_name }}'
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}

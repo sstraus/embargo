@@ -12,7 +12,6 @@
 # Editor/OS
 .DS_Store
 .mdkb/
-.github/
 .claude/
 SPEC.md
 stories/
