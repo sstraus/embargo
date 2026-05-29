@@ -1,0 +1,18 @@
+# Build output
+/embargo
+/dist/
+
+# Local end-to-end test harness (real package-manager runs)
+/tests/
+
+# Go test/coverage artifacts
+*.out
+*.test
+
+# Editor/OS
+.DS_Store
+.mdkb/
+.github/
+.claude/
+SPEC.md
+stories/
