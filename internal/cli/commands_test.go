@@ -3,7 +3,6 @@ package cli
 import (
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
@@ -11,7 +10,7 @@ import (
 )
 
 func TestVerdictNoShimsIsInactive(t *testing.T) {
-	status, reason, remediation := verdict(0, false, "/home/u/.embargo/bin")
+	status, reason, remediation := verdict(0, false, "")
 	if status != "inactive" {
 		t.Fatalf("status = %q, want inactive", status)
 	}
@@ -23,29 +22,32 @@ func TestVerdictNoShimsIsInactive(t *testing.T) {
 	}
 }
 
-func TestVerdictShimsButPathNotAheadIsInactive(t *testing.T) {
-	binDir := "/home/u/.embargo/bin"
-	status, reason, remediation := verdict(10, false, binDir)
+func TestVerdictShadowedNamesTheConflictDir(t *testing.T) {
+	const conflict = "/opt/homebrew/bin"
+	status, reason, remediation := verdict(10, false, conflict)
 	if status != "inactive" {
 		t.Fatalf("status = %q, want inactive", status)
 	}
-	if !strings.Contains(reason, "not ahead") {
-		t.Errorf("reason = %q, want it to mention PATH order", reason)
+	if !strings.Contains(reason, conflict) {
+		t.Errorf("reason = %q, want it to name the shadowing dir %q", reason, conflict)
 	}
-	if !strings.Contains(remediation, binDir) {
-		t.Errorf("remediation = %q, want it to contain the shim dir", remediation)
+	if remediation != shellenvEval() {
+		t.Errorf("remediation = %q, want the shellenv activation %q", remediation, shellenvEval())
 	}
-	wantFragment := "export PATH"
-	if runtime.GOOS == "windows" {
-		wantFragment = "$env:PATH"
+}
+
+func TestVerdictNotOnPathWhenNoConflictDir(t *testing.T) {
+	status, reason, _ := verdict(10, false, "")
+	if status != "inactive" {
+		t.Fatalf("status = %q, want inactive", status)
 	}
-	if !strings.Contains(remediation, wantFragment) {
-		t.Errorf("remediation = %q, want it to contain %q", remediation, wantFragment)
+	if !strings.Contains(reason, "not on your PATH") {
+		t.Errorf("reason = %q, want it to say the shim dir is not on PATH", reason)
 	}
 }
 
 func TestVerdictShimsAheadIsActive(t *testing.T) {
-	status, reason, remediation := verdict(10, true, "/home/u/.embargo/bin")
+	status, reason, remediation := verdict(10, true, "")
 	if status != "active" {
 		t.Fatalf("status = %q, want active", status)
 	}

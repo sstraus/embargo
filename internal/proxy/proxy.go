@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/sstraus/embargo/internal/ecosystem"
 	"github.com/sstraus/embargo/internal/output"
@@ -42,12 +43,16 @@ type Proxy struct {
 	Stderr  io.Writer
 	Env     []string
 
+	// Silent suppresses the decorative banner (config `silent`, default true).
+	Silent bool
+
 	// Hooks (defaulted in New) allow tests to inject behavior.
 	Resolve func(tool, shimDir string) (string, error)
 	Run     Runner
 }
 
-// New returns a Proxy wired to the real environment and exec.
+// New returns a Proxy wired to the real environment and exec. Silent defaults
+// to true so the banner is opt-in and never surprises a script.
 func New(shimDir string) *Proxy {
 	return &Proxy{
 		ShimDir: shimDir,
@@ -55,6 +60,7 @@ func New(shimDir string) *Proxy {
 		Stdout:  os.Stdout,
 		Stderr:  os.Stderr,
 		Env:     os.Environ(),
+		Silent:  true,
 		Resolve: ResolveReal,
 		Run:     execRunner,
 	}
@@ -67,6 +73,9 @@ func (p *Proxy) Handle(ctx context.Context, tool string, args []string, chk Chec
 	if envHas(p.Env, EnvActive) {
 		return p.runReal(ctx, tool, args)
 	}
+
+	// Decorative proof-of-presence: tells the human embargo is on the path.
+	p.notify(brandBanner())
 
 	inv := Classify(tool, args)
 
@@ -121,7 +130,61 @@ func (p *Proxy) preflight(ctx context.Context, check func() (output.Report, erro
 		fmt.Fprintln(p.Stderr, "embargo: blocked before running; the command was NOT executed")
 		return exitBlocked, true
 	}
+	if allowed, _ := report.Counts(); allowed > 0 {
+		p.notify(clearedLine(allowed, report.MinimumAge))
+	}
 	return exitAllowed, false
+}
+
+// notify writes a decorative status line to stderr, but only on an interactive
+// terminal and when not silenced. Piped or redirected output (CI, rtk, scripts
+// parsing stdout) and EMBARGO_QUIET=1 get nothing, so machine parsing is never
+// affected — the banner is cosmetic, never data.
+func (p *Proxy) notify(line string) {
+	if !notifyAllowed(p.Silent, p.Env, isTerminal(p.Stderr)) {
+		return
+	}
+	fmt.Fprintln(p.Stderr, line)
+}
+
+// notifyAllowed is the pure decision behind notify: show the banner only when
+// not silenced by config, not killed by EMBARGO_QUIET, and attached to a TTY.
+func notifyAllowed(silent bool, env []string, interactive bool) bool {
+	return !silent && !envHas(env, EnvQuiet) && interactive
+}
+
+// isTerminal reports whether w is an interactive terminal (a character device),
+// dependency-free. Pipes and regular files are not, so captured output is mute.
+func isTerminal(w io.Writer) bool {
+	f, ok := w.(*os.File)
+	if !ok {
+		return false
+	}
+	info, err := f.Stat()
+	if err != nil {
+		return false
+	}
+	return info.Mode()&os.ModeCharDevice != 0
+}
+
+// ANSI styling for the banner. Only ever emitted to a TTY (see notify), so the
+// escape codes never reach a parser.
+const (
+	ansiReset = "\x1b[0m"
+	ansiBold  = "\x1b[1m"
+	ansiDim   = "\x1b[2m"
+	ansiCyan  = "\x1b[36m"
+)
+
+// brandBanner is the proof-of-presence line shown for every intercepted command.
+func brandBanner() string {
+	return ansiCyan + "🛡  freshness protected by " + ansiBold + "Embargo" + ansiReset
+}
+
+// clearedLine confirms a successful preflight: how many dependencies passed the
+// age gate and the threshold they cleared.
+func clearedLine(n int, minAge time.Duration) string {
+	return fmt.Sprintf("%s   ✓ %d dependencies cleared (≥ %s)%s", ansiDim, n, minAge, ansiReset)
 }
 
 func (p *Proxy) runReal(ctx context.Context, tool string, args []string) int {

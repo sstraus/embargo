@@ -101,6 +101,26 @@ func TestExplicitFalseIsHonored(t *testing.T) {
 	}
 }
 
+func TestSilentDefaultsTrueAndHonorsOverride(t *testing.T) {
+	isolateHome(t)
+	def, err := Load("", t.TempDir())
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !def.Silent {
+		t.Error("Silent should default to true (banner opt-in)")
+	}
+
+	dir := writeConfig(t, "silent: false\n")
+	cfg, err := Load("", dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Silent {
+		t.Error("silent: false must turn off silent (enable the banner)")
+	}
+}
+
 func TestUnknownEcosystemRejected(t *testing.T) {
 	dir := writeConfig(t, "ecosystems:\n  npm: true\n  bogus: true\n")
 	if _, err := Load("", dir); err == nil {

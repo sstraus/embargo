@@ -16,6 +16,10 @@ const EnvRealPrefix = "EMBARGO_REAL_"
 // prevent the shim from re-entering the proxy recursively.
 const EnvActive = "EMBARGO_ACTIVE"
 
+// EnvQuiet is a runtime kill switch for the decorative banner, independent of
+// the config `silent` setting (EMBARGO_QUIET=1 silences it for one invocation).
+const EnvQuiet = "EMBARGO_QUIET"
+
 // ResolveReal finds the real executable for tool, skipping the shim directory
 // so we never resolve back to ourselves. An EMBARGO_REAL_<TOOL> environment
 // override takes precedence.

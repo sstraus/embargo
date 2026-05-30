@@ -64,7 +64,9 @@ func newProxyCmd(g *globalFlags) *cobra.Command {
 			if err != nil {
 				return internalError(err)
 			}
-			code := proxy.New(binDir).Handle(cmd.Context(), tool, rest, chk)
+			px := proxy.New(binDir)
+			px.Silent = chk.cfg.Silent
+			code := px.Handle(cmd.Context(), tool, rest, chk)
 			return exitError{code: code}
 		},
 	}
@@ -86,9 +88,28 @@ func newInstallShimsCmd(g *globalFlags) *cobra.Command {
 	}
 }
 
-// installShims creates the package-manager shims and prints the PATH setup
-// guidance. Shared by the install-shims and init commands so the wording and
-// the not-ahead-of-PATH warning stay in one place.
+// pathExportLine is the shell statement that prepends the shim dir to PATH for
+// the current OS. It is exactly what `embargo shellenv` emits, so the shim dir
+// wins over the real package managers.
+func pathExportLine(binDir string) string {
+	if runtime.GOOS == "windows" {
+		return fmt.Sprintf("$env:PATH = %q + ';' + $env:PATH", binDir)
+	}
+	return fmt.Sprintf("export PATH=%q:$PATH", binDir)
+}
+
+// shellenvEval is the one-liner a user runs to apply shellenv to the *current*
+// shell immediately. A process cannot mutate its parent's PATH, so activation
+// always goes through the shell evaluating embargo's output.
+func shellenvEval() string {
+	if runtime.GOOS == "windows" {
+		return "embargo shellenv | Invoke-Expression"
+	}
+	return `eval "$(embargo shellenv)"`
+}
+
+// installShims creates the package-manager shims and prints how to activate
+// them. Shared by the install-shims and init commands.
 func installShims(out io.Writer) error {
 	binDir, err := shim.BinDir()
 	if err != nil {
@@ -103,17 +124,26 @@ func installShims(out io.Writer) error {
 		return internalError(err)
 	}
 	fmt.Fprintf(out, "Installed %d shims in %s\n", len(created), binDir)
-	fmt.Fprintln(out, "Add the shim directory to the FRONT of your PATH:")
-	if runtime.GOOS == "windows" {
-		fmt.Fprintf(out, "  PowerShell: $env:PATH = %q + ';' + $env:PATH\n", binDir)
-		fmt.Fprintf(out, "  cmd.exe:    set PATH=%s;%%PATH%%\n", binDir)
-	} else {
-		fmt.Fprintf(out, "  export PATH=%q:$PATH\n", binDir)
-	}
-	if !shim.ShimDirFirst(binDir) {
-		fmt.Fprintln(out, "warning: shim dir is not ahead of real package managers in PATH; shims won't intercept yet")
-	}
+	fmt.Fprintln(out, "Activate them by putting the shim dir first in PATH:")
+	fmt.Fprintf(out, "  %s   # this shell, right now\n", shellenvEval())
+	fmt.Fprintf(out, "  add that line to your shell profile (~/.zshrc, ~/.bashrc, PowerShell $PROFILE) to persist it\n")
 	return nil
+}
+
+func newShellenvCmd(g *globalFlags) *cobra.Command {
+	return &cobra.Command{
+		Use:   "shellenv",
+		Short: `Print the PATH export to activate shims; apply with: eval "$(embargo shellenv)"`,
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			binDir, err := shim.BinDir()
+			if err != nil {
+				return internalError(err)
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), pathExportLine(binDir))
+			return nil
+		},
+	}
 }
 
 // starterConfig is the minimal .embargo.yaml written by `embargo init`. It only
@@ -185,6 +215,7 @@ type doctorReport struct {
 	ConfigError        string       `json:"configError,omitempty"`
 	ShimDir            string       `json:"shimDir"`
 	ShimDirAheadInPath bool         `json:"shimDirAheadInPath"`
+	PathConflictDir    string       `json:"pathConflictDir,omitempty"`
 	ShimsInstalled     int          `json:"shimsInstalled"`
 	Tools              []doctorTool `json:"tools"`
 }
@@ -246,6 +277,7 @@ func diagnose(g *globalFlags) (doctorReport, error) {
 	}
 
 	rep.ShimDirAheadInPath = shim.ShimDirFirst(binDir)
+	rep.PathConflictDir = shim.ConflictDir(binDir)
 	for _, st := range shim.Inspect(binDir) {
 		rep.Tools = append(rep.Tools, doctorTool{Tool: st.Tool, HasShim: st.HasShim, RealPath: st.RealPath})
 		if st.HasShim {
@@ -253,26 +285,30 @@ func diagnose(g *globalFlags) (doctorReport, error) {
 		}
 	}
 
-	rep.Status, rep.Reason, rep.Remediation = verdict(rep.ShimsInstalled, rep.ShimDirAheadInPath, binDir)
+	rep.Status, rep.Reason, rep.Remediation = verdict(rep.ShimsInstalled, rep.ShimDirAheadInPath, rep.PathConflictDir)
 	return rep, nil
 }
 
 // verdict reduces the two gating facts — shims installed and PATH order — to the
 // activation status, a human reason, and the exact remediation. Embargo only
 // intercepts when shims exist AND their dir precedes the real tools in PATH.
-func verdict(shimsInstalled int, aheadInPath bool, binDir string) (status, reason, remediation string) {
+// conflictDir, when set, names the directory shadowing the shims so the reason
+// points at the actual culprit instead of a vague "not ahead in PATH".
+func verdict(shimsInstalled int, aheadInPath bool, conflictDir string) (status, reason, remediation string) {
 	switch {
 	case shimsInstalled == 0:
 		return "inactive",
 			"no shims installed; embargo is not intercepting anything",
-			"run 'embargo init', then put the shim dir at the FRONT of your PATH"
+			"run 'embargo init', then activate with " + shellenvEval()
 	case !aheadInPath:
-		if runtime.GOOS == "windows" {
-			remediation = fmt.Sprintf("$env:PATH = %q + ';' + $env:PATH", binDir)
+		if conflictDir != "" {
+			reason = fmt.Sprintf("shims are shadowed by %s, which comes first in PATH", conflictDir)
 		} else {
-			remediation = fmt.Sprintf("export PATH=%q:$PATH", binDir)
+			reason = "the shim dir is not on your PATH"
 		}
-		return "inactive", "shims exist but the shim dir is not ahead of real tools in PATH", remediation
+		// A child process cannot edit the parent shell's PATH, so activation runs
+		// through the shell evaluating shellenv's output.
+		return "inactive", reason, shellenvEval()
 	default:
 		return "active",
 			fmt.Sprintf("intercepting %d tools; installs are gated to minimumReleaseAge", shimsInstalled),
@@ -294,7 +330,11 @@ func writeDoctorText(out io.Writer, rep doctorReport) {
 	fmt.Fprintln(out)
 
 	fmt.Fprintf(out, "shim dir: %s\n", rep.ShimDir)
-	fmt.Fprintf(out, "shim dir comes first in PATH: %s\n", yesNo(rep.ShimDirAheadInPath))
+	if rep.PathConflictDir != "" {
+		fmt.Fprintf(out, "shim dir comes first in PATH: no (shadowed by %s)\n", rep.PathConflictDir)
+	} else {
+		fmt.Fprintf(out, "shim dir comes first in PATH: %s\n", yesNo(rep.ShimDirAheadInPath))
+	}
 	fmt.Fprintln(out)
 	for _, t := range rep.Tools {
 		real := t.RealPath

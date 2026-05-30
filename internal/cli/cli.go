@@ -89,6 +89,7 @@ func newRootCmd(g *globalFlags) *cobra.Command {
 		newCheckCmd(g),
 		newProxyCmd(g),
 		newInstallShimsCmd(g),
+		newShellenvCmd(g),
 		newDoctorCmd(g),
 		newRunCmd(g),
 	)

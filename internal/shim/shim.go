@@ -104,21 +104,45 @@ func Inspect(binDir string) []Status {
 // ShimDirFirst reports whether binDir appears in PATH before any directory that
 // also contains a shimmed tool — i.e. whether the shims actually take effect.
 func ShimDirFirst(binDir string) bool {
+	first, _ := pathPosition(binDir)
+	return first
+}
+
+// ConflictDir returns the directory that shadows the shims: the first directory
+// in PATH that precedes binDir and holds a shimmed tool. It returns "" when the
+// shim dir already comes first, or when the shim dir is absent from PATH (in
+// which case nothing is being shadowed — the shims just aren't on PATH at all).
+func ConflictDir(binDir string) string {
+	_, conflict := pathPosition(binDir)
+	return conflict
+}
+
+// pathPosition walks PATH once and classifies the shim dir's standing:
+// reachedFirst is true when binDir is encountered before any shimmed tool;
+// conflictDir names the directory that shadows binDir (a tool dir appearing
+// before it). conflictDir is empty both when binDir comes first and when binDir
+// is not on PATH at all — in the latter case nothing is shadowing the shims,
+// they simply are not on PATH.
+func pathPosition(binDir string) (reachedFirst bool, conflictDir string) {
+	var firstToolDir string
 	for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
 		if dir == "" {
 			continue
 		}
 		if pathexec.SameDir(dir, binDir) {
-			return true
+			// binDir is on PATH; it wins iff no tool dir preceded it.
+			return firstToolDir == "", firstToolDir
 		}
-		// If a real package manager is found before the shim dir, shims lose.
-		for _, tool := range Tools {
-			if _, ok := pathexec.LookInDir(dir, tool); ok {
-				return false
+		if firstToolDir == "" {
+			for _, tool := range Tools {
+				if _, ok := pathexec.LookInDir(dir, tool); ok {
+					firstToolDir = dir
+					break
+				}
 			}
 		}
 	}
-	return false
+	return false, "" // binDir absent from PATH: not first, nothing shadowed
 }
 
 // lookCommand resolves a command for RunWithShims. A name containing a path

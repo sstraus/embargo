@@ -49,6 +49,10 @@ type Config struct {
 	Exceptions        []Exception     `yaml:"exceptions"`
 	Remote            Remote          `yaml:"remote"`
 	Policy            Policy          `yaml:"policy"`
+	// Silent suppresses the decorative "protected by Embargo" banner the proxy
+	// prints on an interactive terminal. Defaults to true (quiet); set
+	// `silent: false` to opt in to the banner.
+	Silent bool `yaml:"silent"`
 }
 
 // Allow lists packages exempt from the age gate via glob patterns.
@@ -159,6 +163,7 @@ func Default() Config {
 	return Config{
 		MinimumReleaseAge: Duration(DefaultMinimumReleaseAge),
 		Ecosystems:        ecos,
+		Silent:            true,
 		Policy: Policy{
 			EnforceDirectDependencies:     true,
 			EnforceTransitiveDependencies: true,
@@ -179,6 +184,7 @@ type fileConfig struct {
 	Exceptions        []Exception     `yaml:"exceptions"`
 	Remote            *Remote         `yaml:"remote"`
 	Policy            *filePolicy     `yaml:"policy"`
+	Silent            *bool           `yaml:"silent"`
 }
 
 type filePolicy struct {
@@ -248,6 +254,9 @@ func merge(base *Config, file fileConfig) {
 	}
 	if file.Ecosystems != nil {
 		base.Ecosystems = file.Ecosystems
+	}
+	if file.Silent != nil {
+		base.Silent = *file.Silent
 	}
 	// List fields accumulate across layers so a global baseline (e.g. a shared
 	// blocklist) is never wiped by a local config that sets its own list.

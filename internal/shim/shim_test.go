@@ -105,6 +105,30 @@ func TestShimDirFirst(t *testing.T) {
 	}
 }
 
+func TestConflictDir(t *testing.T) {
+	binDir := t.TempDir()
+	otherDir := t.TempDir()
+	writeRealTool(t, otherDir, "npm")
+
+	// Shim dir first: nothing shadows it.
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+otherDir)
+	if got := ConflictDir(binDir); got != "" {
+		t.Errorf("ConflictDir = %q, want empty when shim dir is first", got)
+	}
+
+	// Real tool dir ahead: it is reported as the conflict.
+	t.Setenv("PATH", otherDir+string(os.PathListSeparator)+binDir)
+	if got := ConflictDir(binDir); got != otherDir {
+		t.Errorf("ConflictDir = %q, want the shadowing dir %q", got, otherDir)
+	}
+
+	// Shim dir absent from PATH entirely: nothing is being shadowed.
+	t.Setenv("PATH", otherDir)
+	if got := ConflictDir(binDir); got != "" {
+		t.Errorf("ConflictDir = %q, want empty when shim dir is not on PATH", got)
+	}
+}
+
 func TestRunWithShimsExecutesAndPrependsPath(t *testing.T) {
 	binDir := t.TempDir()
 	out := filepath.Join(t.TempDir(), "captured")

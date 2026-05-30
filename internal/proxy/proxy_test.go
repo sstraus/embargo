@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/sstraus/embargo/internal/ecosystem"
 	"github.com/sstraus/embargo/internal/output"
@@ -140,5 +142,46 @@ func TestHandleRecursionGuardSkipsChecks(t *testing.T) {
 	}
 	if chk.lockCalls != 0 {
 		t.Error("recursion guard must skip the checker")
+	}
+}
+
+func TestNotifyAllowedDecisionMatrix(t *testing.T) {
+	const quiet = EnvQuiet + "=1"
+	cases := []struct {
+		name        string
+		silent      bool
+		env         []string
+		interactive bool
+		want        bool
+	}{
+		{"opt-in on a TTY shows", false, nil, true, true},
+		{"silent by default hides", true, nil, true, false},
+		{"piped output hides even when opted in", false, nil, false, false},
+		{"EMBARGO_QUIET kills it", false, []string{quiet}, true, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := notifyAllowed(tc.silent, tc.env, tc.interactive); got != tc.want {
+				t.Errorf("notifyAllowed(%v, %v, %v) = %v, want %v", tc.silent, tc.env, tc.interactive, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestBrandBannerNamesEmbargo(t *testing.T) {
+	b := brandBanner()
+	for _, want := range []string{"Embargo", "freshness"} {
+		if !strings.Contains(b, want) {
+			t.Errorf("brandBanner() = %q, want it to contain %q", b, want)
+		}
+	}
+}
+
+func TestClearedLineReportsCountAndAge(t *testing.T) {
+	line := clearedLine(3, 72*time.Hour)
+	for _, want := range []string{"3 dependencies cleared", "72h"} {
+		if !strings.Contains(line, want) {
+			t.Errorf("clearedLine = %q, want it to contain %q", line, want)
+		}
 	}
 }
