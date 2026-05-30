@@ -50,8 +50,9 @@ type Config struct {
 	Remote            Remote          `yaml:"remote"`
 	Policy            Policy          `yaml:"policy"`
 	// Silent suppresses the decorative "protected by Embargo" banner the proxy
-	// prints on an interactive terminal. Defaults to true (quiet); set
-	// `silent: false` to opt in to the banner.
+	// prints on an interactive terminal. Defaults to false (banner shown); set
+	// `silent: true` to turn it off. The banner is gated to a TTY regardless, so
+	// piped/redirected output is never affected either way.
 	Silent bool `yaml:"silent"`
 }
 
@@ -163,7 +164,8 @@ func Default() Config {
 	return Config{
 		MinimumReleaseAge: Duration(DefaultMinimumReleaseAge),
 		Ecosystems:        ecos,
-		Silent:            true,
+		// Silent defaults to false (zero value): the banner is shown, gated to a
+		// TTY. Set `silent: true` in config to turn it off.
 		Policy: Policy{
 			EnforceDirectDependencies:     true,
 			EnforceTransitiveDependencies: true,

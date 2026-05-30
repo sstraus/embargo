@@ -90,12 +90,25 @@ func newInstallShimsCmd(g *globalFlags) *cobra.Command {
 
 // pathExportLine is the shell statement that prepends the shim dir to PATH for
 // the current OS. It is exactly what `embargo shellenv` emits, so the shim dir
-// wins over the real package managers.
+// wins over the real package managers. The path is single-quoted literally: Go's
+// %q would double backslashes (breaking the PowerShell path) and leave `$`
+// subject to shell expansion (breaking POSIX paths that contain it).
 func pathExportLine(binDir string) string {
 	if runtime.GOOS == "windows" {
-		return fmt.Sprintf("$env:PATH = %q + ';' + $env:PATH", binDir)
+		return fmt.Sprintf("$env:PATH = %s + ';' + $env:PATH", psSingleQuote(binDir))
 	}
-	return fmt.Sprintf("export PATH=%q:$PATH", binDir)
+	return fmt.Sprintf("export PATH=%s:$PATH", shSingleQuote(binDir))
+}
+
+// shSingleQuote wraps s in POSIX single quotes so the shell treats it literally
+// (no $-expansion, no backslash mangling), escaping any embedded quote as '\”.
+func shSingleQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
+// psSingleQuote wraps s in PowerShell single quotes (literal; ” escapes a quote).
+func psSingleQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
 }
 
 // shellenvEval is the one-liner a user runs to apply shellenv to the *current*
@@ -160,19 +173,22 @@ minimumReleaseAge: 72h
 `
 
 // writeStarterConfig writes the starter .embargo.yaml at path, but never
-// clobbers an existing config. It reports whether it wrote a new file.
+// clobbers an existing config. O_EXCL makes the "create only if absent" check
+// atomic, so a concurrent init (or a file appearing between check and write)
+// can't overwrite a user's config. It reports whether it wrote a new file.
 func writeStarterConfig(path string) (wrote bool, err error) {
-	switch _, statErr := os.Stat(path); {
-	case statErr == nil:
-		return false, nil
-	case errors.Is(statErr, os.ErrNotExist):
-		if werr := os.WriteFile(path, []byte(starterConfig), 0o644); werr != nil {
-			return false, fmt.Errorf("writing %s: %w", path, werr)
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return false, nil
 		}
-		return true, nil
-	default:
-		return false, fmt.Errorf("checking %s: %w", path, statErr)
+		return false, fmt.Errorf("writing %s: %w", path, err)
 	}
+	defer f.Close()
+	if _, werr := f.WriteString(starterConfig); werr != nil {
+		return false, fmt.Errorf("writing %s: %w", path, werr)
+	}
+	return true, nil
 }
 
 func newInitCmd(g *globalFlags) *cobra.Command {
@@ -276,8 +292,7 @@ func diagnose(g *globalFlags) (doctorReport, error) {
 		rep.ConfigError = cerr.Error()
 	}
 
-	rep.ShimDirAheadInPath = shim.ShimDirFirst(binDir)
-	rep.PathConflictDir = shim.ConflictDir(binDir)
+	rep.ShimDirAheadInPath, rep.PathConflictDir = shim.PathStanding(binDir)
 	for _, st := range shim.Inspect(binDir) {
 		rep.Tools = append(rep.Tools, doctorTool{Tool: st.Tool, HasShim: st.HasShim, RealPath: st.RealPath})
 		if st.HasShim {

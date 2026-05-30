@@ -31,19 +31,34 @@ func buildInfo() cli.BuildInfo {
 	if !ok {
 		return bi
 	}
+	return enrichFromBuildInfo(bi, info)
+}
+
+// enrichFromBuildInfo overlays the module version and VCS stamps from the Go
+// toolchain onto bi. Split out from buildInfo so the (order-sensitive) VCS
+// assembly is unit-testable without a real build.
+func enrichFromBuildInfo(bi cli.BuildInfo, info *debug.BuildInfo) cli.BuildInfo {
 	if v := info.Main.Version; v != "" && v != "(devel)" {
 		bi.Version = v
 	}
+	// Collect first, assemble after: the order of info.Settings is not guaranteed,
+	// so appending "-dirty" inline would be lost if vcs.modified precedes
+	// vcs.revision (which overwrites bi.Commit).
+	var revision, modified string
 	for _, s := range info.Settings {
 		switch s.Key {
 		case "vcs.revision":
-			bi.Commit = s.Value
+			revision = s.Value
 		case "vcs.time":
 			bi.Date = s.Value
 		case "vcs.modified":
-			if s.Value == "true" {
-				bi.Commit += "-dirty"
-			}
+			modified = s.Value
+		}
+	}
+	if revision != "" {
+		bi.Commit = revision
+		if modified == "true" {
+			bi.Commit += "-dirty"
 		}
 	}
 	return bi

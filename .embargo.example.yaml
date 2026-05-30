@@ -6,12 +6,12 @@
 # Accepts Go-style durations ("72h", "30m") or a bare number of seconds.
 minimumReleaseAge: 72h
 
-# Suppress the decorative "🛡  freshness protected by Embargo" banner the proxy
-# prints when intercepting a command. Default true (quiet). Set to false to opt
-# in to the banner. It is cosmetic, written only to stderr on an interactive
-# terminal (never when output is piped/redirected), so it can never corrupt
-# machine parsing. EMBARGO_QUIET=1 silences it for a single invocation.
-silent: true
+# Decorative "freshness gate active - Embargo" footer the proxy prints after
+# intercepting a command. Default false (shown). Set to true to turn it off.
+# It is cosmetic, written only to stderr on an interactive terminal (never when
+# output is piped/redirected), so it can never corrupt machine parsing.
+# EMBARGO_QUIET=1 silences it for a single invocation.
+silent: false
 
 # Which ecosystems to enforce. If this map is present, an ecosystem is only
 # scanned when explicitly set to true. Omit the whole block to enforce all.

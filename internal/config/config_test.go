@@ -101,23 +101,23 @@ func TestExplicitFalseIsHonored(t *testing.T) {
 	}
 }
 
-func TestSilentDefaultsTrueAndHonorsOverride(t *testing.T) {
+func TestSilentDefaultsFalseAndHonorsOverride(t *testing.T) {
 	isolateHome(t)
 	def, err := Load("", t.TempDir())
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if !def.Silent {
-		t.Error("Silent should default to true (banner opt-in)")
+	if def.Silent {
+		t.Error("Silent should default to false (banner shown)")
 	}
 
-	dir := writeConfig(t, "silent: false\n")
+	dir := writeConfig(t, "silent: true\n")
 	cfg, err := Load("", dir)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if cfg.Silent {
-		t.Error("silent: false must turn off silent (enable the banner)")
+	if !cfg.Silent {
+		t.Error("silent: true must turn the banner off")
 	}
 }
 

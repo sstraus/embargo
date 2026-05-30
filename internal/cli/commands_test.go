@@ -1,8 +1,10 @@
 package cli
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -125,5 +127,78 @@ func TestStarterConfigParsesAndKeepsDefaults(t *testing.T) {
 	}
 	if !strings.HasPrefix(string(data), "# embargo policy") {
 		t.Errorf("scaffold missing header comment, got:\n%s", data)
+	}
+}
+
+func TestWriteDoctorTextShowsShadowingDir(t *testing.T) {
+	var buf bytes.Buffer
+	writeDoctorText(&buf, doctorReport{
+		LocalConfig:        doctorFile{Path: ".embargo.yaml", Present: true},
+		MinimumReleaseAge:  "72h0m0s",
+		ShimDir:            "/home/u/.embargo/bin",
+		ShimDirAheadInPath: false,
+		PathConflictDir:    "/opt/homebrew/bin",
+		Status:             "inactive",
+		Reason:             "shims are shadowed by /opt/homebrew/bin, which comes first in PATH",
+	})
+	out := buf.String()
+	if !strings.Contains(out, "shadowed by /opt/homebrew/bin") {
+		t.Errorf("doctor text should name the shadowing dir, got:\n%s", out)
+	}
+}
+
+func TestWriteDoctorTextActiveSaysYes(t *testing.T) {
+	var buf bytes.Buffer
+	writeDoctorText(&buf, doctorReport{
+		ShimDir:            "/home/u/.embargo/bin",
+		ShimDirAheadInPath: true,
+		Status:             "active",
+		Reason:             "intercepting 10 tools; installs are gated to minimumReleaseAge",
+	})
+	out := buf.String()
+	if !strings.Contains(out, "comes first in PATH: yes") {
+		t.Errorf("active doctor text should say 'yes', got:\n%s", out)
+	}
+	if !strings.Contains(out, "STATUS: ACTIVE") {
+		t.Errorf("expected STATUS: ACTIVE, got:\n%s", out)
+	}
+}
+
+func TestPathExportLineAndShellenvEval(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX export assertions; Windows variants differ")
+	}
+	line := pathExportLine("/home/u/.embargo/bin")
+	if !strings.HasPrefix(line, "export PATH=") || !strings.Contains(line, "/home/u/.embargo/bin") {
+		t.Errorf("pathExportLine = %q, want an export of the shim dir", line)
+	}
+	if eval := shellenvEval(); !strings.Contains(eval, "embargo shellenv") || !strings.Contains(eval, "eval") {
+		t.Errorf("shellenvEval = %q, want it to eval embargo shellenv", eval)
+	}
+}
+
+func TestShSingleQuoteIsLiteralAndSafe(t *testing.T) {
+	// A plain path is wrapped in single quotes.
+	if got := shSingleQuote("/home/u/.embargo/bin"); got != `'/home/u/.embargo/bin'` {
+		t.Errorf("shSingleQuote = %q, want single-quoted path", got)
+	}
+	// A `$` stays literal inside single quotes (no expansion).
+	if got := shSingleQuote("/home/$USER/bin"); got != `'/home/$USER/bin'` {
+		t.Errorf("shSingleQuote = %q, want $ kept literal", got)
+	}
+	// An embedded quote is escaped as '\''.
+	if got := shSingleQuote("/a'b"); got != `'/a'\''b'` {
+		t.Errorf("shSingleQuote = %q, want embedded quote escaped", got)
+	}
+}
+
+func TestPsSingleQuoteEscapesQuoteAndKeepsBackslash(t *testing.T) {
+	// Backslashes stay single (PowerShell single-quote is literal) — the %q bug.
+	if got := psSingleQuote(`C:\Users\u\.embargo\bin`); got != `'C:\Users\u\.embargo\bin'` {
+		t.Errorf("psSingleQuote = %q, want backslashes kept single", got)
+	}
+	// An embedded quote is doubled.
+	if got := psSingleQuote(`C:\a'b`); got != `'C:\a''b'` {
+		t.Errorf("psSingleQuote = %q, want '' escaping", got)
 	}
 }

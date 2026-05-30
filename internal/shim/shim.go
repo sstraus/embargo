@@ -117,6 +117,13 @@ func ConflictDir(binDir string) string {
 	return conflict
 }
 
+// PathStanding returns both PATH facts in a single walk: whether binDir comes
+// first, and the directory shadowing it (empty when none). Prefer this over
+// calling ShimDirFirst and ConflictDir back-to-back, which walks PATH twice.
+func PathStanding(binDir string) (aheadInPath bool, conflictDir string) {
+	return pathPosition(binDir)
+}
+
 // pathPosition walks PATH once and classifies the shim dir's standing:
 // reachedFirst is true when binDir is encountered before any shimmed tool;
 // conflictDir names the directory that shadows binDir (a tool dir appearing

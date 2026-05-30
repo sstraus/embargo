@@ -120,6 +120,8 @@ func mergeRemoteLists(ctx context.Context, cfg *config.Config, cacheDir string) 
 	wg.Wait()
 
 	// Apply in config order; a required list with no usable content fails closed.
+	// A non-required failure is not silent: f.Fetch surfaces it via res.warns,
+	// appended below.
 	var warnings []string
 	for _, rl := range cfg.Remote.Lists {
 		res := results[rl.URL]

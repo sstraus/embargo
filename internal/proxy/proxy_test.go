@@ -157,7 +157,10 @@ func TestNotifyAllowedDecisionMatrix(t *testing.T) {
 		{"opt-in on a TTY shows", false, nil, true, true},
 		{"silent by default hides", true, nil, true, false},
 		{"piped output hides even when opted in", false, nil, false, false},
-		{"EMBARGO_QUIET kills it", false, []string{quiet}, true, false},
+		{"EMBARGO_QUIET=1 kills it", false, []string{quiet}, true, false},
+		{"EMBARGO_QUIET=true kills it", false, []string{EnvQuiet + "=true"}, true, false},
+		{"EMBARGO_QUIET=false does NOT silence", false, []string{EnvQuiet + "=false"}, true, true},
+		{"EMBARGO_QUIET=0 does NOT silence", false, []string{EnvQuiet + "=0"}, true, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -169,10 +172,9 @@ func TestNotifyAllowedDecisionMatrix(t *testing.T) {
 }
 
 func TestBrandBannerNamesEmbargo(t *testing.T) {
-	b := brandBanner()
 	for _, want := range []string{"Embargo", "freshness"} {
-		if !strings.Contains(b, want) {
-			t.Errorf("brandBanner() = %q, want it to contain %q", b, want)
+		if !strings.Contains(brandBanner, want) {
+			t.Errorf("brandBanner = %q, want it to contain %q", brandBanner, want)
 		}
 	}
 }
