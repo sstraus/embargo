@@ -85,6 +85,7 @@ func newRootCmd(g *globalFlags) *cobra.Command {
 	pf.BoolVar(&g.noCache, "no-cache", false, "bypass the metadata cache")
 
 	root.AddCommand(
+		newInitCmd(g),
 		newCheckCmd(g),
 		newProxyCmd(g),
 		newInstallShimsCmd(g),

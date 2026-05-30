@@ -78,7 +78,15 @@ Or grab a prebuilt binary from the [releases page](https://github.com/sstraus/em
 
 ## Quickstart
 
-Drop a `.embargo.yaml` in your repo root (see [Configuration](#configuration)), then:
+Scaffold a config and install the shims in one step:
+
+```sh
+embargo init
+```
+
+This writes a minimal `.embargo.yaml` (see [Configuration](#configuration)) if one is not
+already present, installs the package-manager shims, and prints the PATH line to activate them.
+Then scan your lockfiles:
 
 ```sh
 embargo check
@@ -129,7 +137,8 @@ jobs:
 
 ## Intercepting installs (humans & AI agents)
 
-Install the shims and put them first on your PATH:
+Install the shims and put them first on your PATH (`embargo init` runs `install-shims` for
+you as part of setup):
 
 ```sh
 embargo install-shims
@@ -169,6 +178,22 @@ embargo run -- codex         # Codex CLI
 
 `run` prepends `~/.embargo/bin` to the PATH of the child process and everything it spawns.
 
+An agent can confirm whether interception is actually active with machine-readable output:
+
+```sh
+embargo doctor --json   # {"status":"active|inactive","reason":...,"remediation":...,"tools":[...]}
+```
+
+Gate a session on it so the agent refuses to install anything while unprotected:
+
+```sh
+test "$(embargo doctor --json | jq -r .status)" = active \
+  || { echo "embargo not protecting — run 'embargo init' and fix PATH"; exit 1; }
+```
+
+The `status` field is the unambiguous signal; `remediation` carries the exact command to fix an
+`inactive` state.
+
 ### rtk
 
 If you use [rtk](https://github.com/) (the Claude Code PreToolUse output-filter that
@@ -191,8 +216,8 @@ Each layer overrides only the fields it sets, so the global config is a baseline
 configs refine (e.g. a global `minimumReleaseAge: 120h` still applies unless a project lowers
 it). `--config` replaces the *local* layer but still sits on top of the global one. Run
 `embargo doctor` to see which config files are active and the effective minimum age. See
-[`.embargo.yaml`](.embargo.yaml) in this repo for a fully commented example (the same schema
-works as the global config).
+[`.embargo.example.yaml`](.embargo.example.yaml) in this repo for a fully commented example
+(the same schema works as the global config).
 
 ```yaml
 minimumReleaseAge: 72h

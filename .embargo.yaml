@@ -1,73 +1,11 @@
-# embargo policy — block dependency versions that are "too fresh".
-# Every field is optional; the values below are the built-in defaults unless
-# noted otherwise. Remove what you don't need.
+# embargo policy for this repo. Minimal on purpose: it pins the age gate and
+# lets everything else fall back to the built-in defaults (all ecosystems
+# enforced, direct+transitive on, fail-closed). This is what `embargo init`
+# scaffolds.
+#
+# See .embargo.example.yaml for a fully commented reference of every field
+# (allow/block lists, remote shared lists, per-package exceptions, policy).
 
 # A version must be at least this old before it may be installed/used.
 # Accepts Go-style durations ("72h", "30m") or a bare number of seconds.
 minimumReleaseAge: 72h
-
-# Which ecosystems to enforce. If this map is present, an ecosystem is only
-# scanned when explicitly set to true. Omit the whole block to enforce all.
-ecosystems:
-  npm: true
-  pnpm: true
-  yarn: true
-  bun: true
-  deno: true
-  cargo: true
-  go: true
-  pip: true
-  uv: true
-
-# Trusted package globs that bypass the age gate. "*" matches any run of
-# characters (including "/"). Does NOT override the block list below.
-allow:
-  packages:
-    - "@company/*"
-    - "github.com/company/*"
-    - "company-internal-*"
-
-# Denied package globs. A match is blocked outright, regardless of age, and a
-# block beats the allow list above. An explicit exception (below) can still
-# rescue a blocked version. Same glob semantics as allow.
-block:
-  packages:
-    - "evil-*"
-    - "left-pad"
-
-# Shared allow/block lists fetched over HTTPS — e.g. a file published in a
-# GitHub repo. Each URL is fetched, cached on disk (using cacheTTL below), and
-# its allow/block packages merged into the lists above. URLs must be https; a
-# redirect off https is refused. By default, if a list is unreachable embargo
-# warns and falls back to the last cached copy (or skips it) rather than failing
-# the run. Mark a security-critical source `required: true` to instead fail the
-# run closed when it yields no usable content. The remote file uses the same
-# allow/block schema:
-#   allow:
-#     packages: ["@trusted/*"]
-#   block:
-#     packages: ["evil-pkg"]
-remote:
-  lists:
-    # Bare string: optional, warn-and-continue on failure.
-    - https://raw.githubusercontent.com/company/embargo-lists/main/blocklist.yaml
-    # Mapping form: required source, fails closed if unreachable with no cache.
-    - url: https://raw.githubusercontent.com/company/embargo-lists/main/critical.yaml
-      required: true
-
-# One-off, expiring allowances for a specific package version. Use sparingly,
-# e.g. to ship an urgent security fix before it clears the age window.
-exceptions:
-  - ecosystem: npm
-    package: lodash
-    version: 4.17.21
-    reason: "security fix CVE-2021-23337"
-    expires: "2026-06-15" # YYYY-MM-DD; omit for "never expires"
-
-policy:
-  enforceDirectDependencies: true
-  enforceTransitiveDependencies: true
-  # When a registry lookup fails: false = block (fail-closed), true = allow.
-  failOpenOnRegistryError: false
-  # How long fetched release metadata is cached on disk.
-  cacheTTL: 24h
