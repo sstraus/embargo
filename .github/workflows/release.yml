@@ -118,6 +118,10 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Update Homebrew tap
+        # Best-effort downstream trigger: the release is already published by the
+        # step above, so a tap-token problem (e.g. an expired HOMEBREW_TAP_TOKEN)
+        # must not fail the whole release job.
+        continue-on-error: true
         if: ${{ !contains(github.ref, '-rc') && !contains(github.ref, '-beta') && !contains(github.ref, '-alpha') }}
         run: |
           gh api repos/sstraus/homebrew-tap/dispatches \
